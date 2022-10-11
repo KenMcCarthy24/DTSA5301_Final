@@ -1,0 +1,148 @@
+---
+title: "NYPD Shooting Incident Data Report"
+output:
+  pdf_document: default
+  html_document: default
+date: "2022-09-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r import, include=FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+## Loading in Raw data
+
+The data being used for this assignment is public data on every reported shooting in New York City. The data set contains information about each shooting such as when and where it occured as well as demographic information about both the perpetrator and the victim
+
+```{r load_data, message=FALSE}
+data_url = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv"
+
+shooting_data_raw = read_csv(data_url)
+
+shooting_data_raw
+```
+
+## Tidy up data
+
+I am going to start by tidying the data up. This involves separating the dates into year, month, and day columns as well as removing any columns I don't plan on using in my analysis. The analyses I plan on doing involve visualizing shootings in each borough over time, visualizing the number of shootings by precinct, and building a model to predict the number of shootings in a single borough for some future year. I will only keep the columns I will need for those analyses.
+
+```{r tidy_data}
+shooting_data_tidy = shooting_data_raw %>%
+  mutate(YEAR = lubridate::year(mdy(OCCUR_DATE)),
+         MONTH = lubridate::month(mdy(OCCUR_DATE)),
+         DAY = lubridate::day(mdy(OCCUR_DATE))) %>%
+  select(c(YEAR, MONTH, DAY, BORO, PRECINCT))
+
+summary(shooting_data_tidy)
+```
+
+For the columns I chose for my analysis, there does not appear to be any missing data. If there were I would need to filter out the rows with missing data, as they would not be useful for analysis.
+
+## Visualization 1: Borough Shootings Over Time
+
+Here I want to visualize how the number in each borough has changed over the years. To do this I need to make data frame that includes information on how many shootings there were in each borough each year.
+
+```{r}
+shooting_data_by_borough = shooting_data_tidy %>%
+  group_by(YEAR, BORO) %>%
+  summarise(Count=n(), .groups="drop")
+
+```
+
+Now make a plot:
+
+```{r}
+shooting_data_by_borough %>%
+  ggplot(aes(x=YEAR, y=Count, color=factor(BORO))) + 
+  geom_line() + 
+  labs(title = "Shooting Amount by Borough Over Time")
+```
+
+It appears based on this plot that Brooklyn has by far the most shootings in ever year except for 2021. Similarly Staten Island consistently has far fewer shootings than any other borough.
+
+Some additional questions that arise from this analysis:\
+1. The counts seem to be proportional to the population of the boroughs. What would this plot look like if it were normalized for borough population and the y axis was something like 'Count per 100,000 people'?\
+2. What caused the downward trend in shootings starting in 2011 and why did it suddenly jump back up in 2020?
+
+## Visualization 2: Borough Shootings Over Time
+
+Here I want to visualize how many shootings occurred in each precinct. To do this I first need to make a data frame that contains the amount of shootings per precinct.
+
+```{r}
+shooting_data_by_precinct = shooting_data_tidy %>%
+  group_by(PRECINCT) %>%
+  summarise(Count=n(), .groups="drop")
+
+shooting_data_by_precinct
+```
+
+Now make a plot:
+
+```{r}
+shooting_data_by_precinct %>%
+  ggplot(aes(x=PRECINCT, y=Count)) + 
+  geom_bar(stat='identity') + 
+  labs(title = "Shooting Amount by Precinct")
+```
+
+From this plot I can see that the number of shootings by precinct varies widely, with some having as few as few as 1 shooting and some having over 1000.
+
+Some questions that arise from this visualization: 1. There are some numbers that have zero shootings, how many of these are precincts that actually had zero shootings in this data set and how many of these are precincts that just don't' exist 2. What are the relative demographics of the precincts that have a large amount of shootings vs ones that have a low amount of shootings.
+
+## Model: Predict Number of shootings in Staten Island in 2025
+
+Here I want to build a linear model of the number of shootings in Staten Island and use that model to predict the number of shootings in the future year of 2025. Start by trimming my data frame to only include data from Staten Island
+
+```{r}
+shooting_data_si = shooting_data_by_borough[shooting_data_by_borough$BORO == "STATEN ISLAND", ]
+
+```
+
+Now create a linear model between Year and count for Staten Island
+
+```{r}
+model = lm(Count ~ YEAR, data=shooting_data_si)
+summary(model)
+```
+
+Now add a prediction column to my Staten Island data frame and make a plot showing this model and how it fits the data
+
+```{r}
+shooting_data_si = shooting_data_si %>% mutate(Count_predicted = predict(model))
+
+shooting_data_si %>%
+  ggplot() + 
+  geom_line(aes(x=YEAR, y=Count), color="red") + 
+  geom_line(aes(x=YEAR, y=Count_predicted), color="blue") +
+  labs(title = "Model of Staten Island Shootings")
+  
+```
+
+This linear fit does seem to show a steeper downward trend then the data does visually, perhaps it was biased by the very low values in 2018 and 2019. I wonder how much better of a fit I could have gotten with a more sophisticated model than a simple linear regression. Either way, now that I have my model made I can predict how many shootings there will be in Staten Island in 2025.
+
+```{r}
+predict(model, data.frame(YEAR=2025))
+```
+
+So based on past data I have predicted that there will be about 31 shootings in Staten Island in 2025.
+
+## Conclusion
+
+When visualizing the relative frequency of shootings in different boroughs over time, it was apparent that Brooklyn has a much higher amount of shootings than the other boroughs and Staten Island has far few shootings than any of the other boroughs. In the first plot produced there are so few shootings in Staten Island compared to the other boroughs that the data looks almost constant.
+
+When visualizing the frequency of shootings in different precincts, different precincts have vastly different numbers of shootings, some even being several orders of magnitude different.
+
+When fitting a linear curve to the shootings in Staten Island, a linear regression didn't yield very good results and a more sophisticated regression model may have made more sense to use here. Despite that, the model was able to predict that in 2025 there will be about 31 murders in Staten Island.
+
+## Bias
+
+One type of bias that I have is the preconceived idea that NYC is a somewhat dangerous place where shootings are more common than other safer places. I attempted to remove this bias of mine in my analyses above by doing analyses where the actual magnitude of shootings in a borough is not as important as the relative number of shootings between boroughs. By comparing these relative numbers, you can make conclusions about the relative safety of boroughs regardless of your bias for where is and where isn't a more dangerous area.
+
+```{r sessioninfo}
+sessionInfo()
+```
